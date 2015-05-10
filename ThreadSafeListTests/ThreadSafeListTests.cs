@@ -539,9 +539,10 @@ namespace ThreadSafeList.Tests
         private static readonly int threadCount = Environment.ProcessorCount * 2;
 
         /// <summary>
-        /// The size of the collections to instantiate
+        /// The size of the collections to instantiate.  I did 100 because this thing
+        /// is a hog.
         /// </summary>
-        private static readonly int collectionSize = 1000;
+        private static readonly int collectionSize = 100;
 
         // Data to test against, freshly prepopulated before each test
         List<int> valueTypes;
