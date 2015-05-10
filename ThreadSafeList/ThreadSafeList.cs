@@ -26,28 +26,32 @@ namespace ThreadSafeList
         protected List<T> _internalList;
 
         /// <summary>
-        /// Internal object on which to lock when performing critical
-        /// operations
-        /// </summary>
-        protected object _lock = new object();
-
-        /// <summary>
-        /// This is the only method you'll need to implement to derive
-        /// from this class.  It is the wrapper that will be used for all
+        /// This is one of two methods you'll need to implement to derive
+        /// from this class.  It is the wrapper that will be used for all read
         /// methods invoked on the internal list.  It is used to provide
         /// support for concurrency in whichever fasion you deem appropriate.
         /// </summary>
-        /// <param name="operation">The action that will be performed in a
+        /// <param name="operation">The read action that will be performed in a
         /// thread-safe manner</param>
-        protected abstract void ThreadSafeWrapper(Action operation);
+        protected abstract void ThreadSafeReadWrapper(Action operation);
+
+        /// <summary>
+        /// This is one of two methods you'll need to implement to derive
+        /// from this class.  It is the wrapper that will be used for all write
+        /// methods invoked on the internal list.  It is used to provide
+        /// support for concurrency in whichever fasion you deem appropriate.
+        /// </summary>
+        /// <param name="operation">The write action that will be performed in a
+        /// thread-safe manner</param>
+        protected abstract void ThreadSafeWriteWrapper(Action operation);
 
         /// <summary>
         /// The method used to Clone the internal list so it can
         /// be enumerated over.  The default implmentation is a
         /// deep clone and unless you are opening yourself up to
         /// errors if you change it to shallow. Nevertheless, if you
-        /// find yourself in need just override this method with either
-        /// ShallowCloneInternalList below, or your the implementation
+        /// find yourself in need you can just override this method with
+        /// either ShallowCloneInternalList below, or the implementation
         /// your use case dictates.  Be sure to read all the cautions listed
         /// on the IEnumerator<T> GetEnumerator() of this class before you do
         /// though because I thought this through hard and you'll want to know
@@ -65,15 +69,22 @@ namespace ThreadSafeList
         /// <returns>A deep copy of the internal list</returns>
         protected List<T> DeepCloneInternalList()
         {
-            // Serialize to memory then back out to create
-            // a deep clone
-            using (var ms = new MemoryStream())
+            List<T> tmp = new List<T>(this.Count);
+
+            ThreadSafeReadWrapper(() =>
             {
-                var formatter = new BinaryFormatter();
-                formatter.Serialize(ms, _internalList);
-                ms.Position = 0;
-                return (List<T>)formatter.Deserialize(ms);
-            }
+                // Serialize to memory then back out to create
+                // a deep clone
+                using (var ms = new MemoryStream())
+                {
+                    var formatter = new BinaryFormatter();
+                    formatter.Serialize(ms, _internalList);
+                    ms.Position = 0;
+                    tmp = (List<T>)formatter.Deserialize(ms);
+                }
+            });
+
+            return tmp;
         }
 
         /// <summary>
@@ -82,7 +93,9 @@ namespace ThreadSafeList
         /// <returns>A shallow copy of the internal list</returns>
         protected List<T> ShallowCloneInternalList()
         {
-            return ((ThreadSafeList<T>)this.MemberwiseClone())._internalList;
+            List<T> tmp = new List<T>(this.Count);
+            ThreadSafeReadWrapper(() => { tmp = _internalList.ToList(); });
+            return tmp;
         }
 
         #region Constructors
@@ -134,7 +147,7 @@ namespace ThreadSafeList
         public int IndexOf(T item)
         {
             int tmp = -1;
-            ThreadSafeWrapper(() => tmp = _internalList.IndexOf(item));
+            ThreadSafeReadWrapper(() => tmp = _internalList.IndexOf(item));
             return tmp;
         }
 
@@ -147,7 +160,7 @@ namespace ThreadSafeList
         /// <exception cref="System.ArgumentOutOfRangeException">index is less than 0.-or-index is greater than ThreadSafeList&lt;T&gt;.Count.</exception>
         public void Insert(int index, T item)
         {
-            ThreadSafeWrapper(() => _internalList.Insert(index, item));
+            ThreadSafeWriteWrapper(() => _internalList.Insert(index, item));
         }
 
         /// <summary>
@@ -157,7 +170,7 @@ namespace ThreadSafeList
         /// <exception cref="System.ArgumentOutOfRangeException">index is less than 0.-or-index is greater than ThreadSafeList&lt;T&gt;.Count.</exception>
         public void RemoveAt(int index)
         {
-            ThreadSafeWrapper(() => _internalList.RemoveAt(index));
+            ThreadSafeWriteWrapper(() => _internalList.RemoveAt(index));
         }
 
         /// <summary>
@@ -171,12 +184,12 @@ namespace ThreadSafeList
             get
             {
                 T tmp = default(T);
-                ThreadSafeWrapper(() => tmp = _internalList[index]);
+                ThreadSafeReadWrapper(() => tmp = _internalList[index]);
                 return tmp;
             }
             set
             {
-                ThreadSafeWrapper(() => _internalList[index] = value);
+                ThreadSafeWriteWrapper(() => _internalList[index] = value);
             }
         }
 
@@ -187,7 +200,7 @@ namespace ThreadSafeList
         /// The value can be null for reference types.</param>
         public void Add(T item)
         {
-            ThreadSafeWrapper(() => _internalList.Add(item));
+            ThreadSafeWriteWrapper(() => _internalList.Add(item));
         }
 
         /// <summary>
@@ -195,7 +208,7 @@ namespace ThreadSafeList
         /// </summary>
         public void Clear()
         {
-            ThreadSafeWrapper(() => _internalList.Clear());
+            ThreadSafeWriteWrapper(() => _internalList.Clear());
         }
 
         /// <summary>
@@ -208,7 +221,7 @@ namespace ThreadSafeList
         public bool Contains(T item)
         {
             bool tmp = false;
-            ThreadSafeWrapper(() => tmp = _internalList.Contains(item));
+            ThreadSafeReadWrapper(() => tmp = _internalList.Contains(item));
             return tmp;
         }
 
@@ -227,7 +240,7 @@ namespace ThreadSafeList
         public void CopyTo(T[] array, int arrayIndex)
         {
             // Check because we need to use properties on the array below
-            if (array == null )
+            if (array == null)
             {
                 throw new ArgumentNullException();
             }
@@ -244,7 +257,7 @@ namespace ThreadSafeList
 
                     if (lockTaken)
                     {
-                        ThreadSafeWrapper(() => _internalList.CopyTo(array, arrayIndex));   
+                        ThreadSafeWriteWrapper(() => _internalList.CopyTo(array, arrayIndex));
                     }
                 }
                 finally
@@ -253,11 +266,11 @@ namespace ThreadSafeList
                     {
                         Monitor.Exit(array.SyncRoot);
                     }
-                }                
+                }
             }
             else
             {
-                ThreadSafeWrapper(() => _internalList.CopyTo(array, arrayIndex));
+                ThreadSafeWriteWrapper(() => _internalList.CopyTo(array, arrayIndex));
             }
         }
 
@@ -269,7 +282,7 @@ namespace ThreadSafeList
             get
             {
                 int tmp = 0;
-                ThreadSafeWrapper(() => tmp = _internalList.Count());
+                ThreadSafeReadWrapper(() => tmp = _internalList.Count());
                 return tmp;
             }
         }
@@ -295,7 +308,7 @@ namespace ThreadSafeList
         public bool Remove(T item)
         {
             bool tmp = false;
-            ThreadSafeWrapper(() => tmp = _internalList.Remove(item));
+            ThreadSafeWriteWrapper(() => tmp = _internalList.Remove(item));
             return tmp;
         }
 
@@ -364,6 +377,11 @@ namespace ThreadSafeList
     /// <typeparam name="T">The type of objects to store in the ThreadSafeList</typeparam>
     public sealed class PerformanceThreadSafeList<T> : ThreadSafeList<T>
     {
+        /// <summary>
+        /// Internal object on which to lock when performing critical operations
+        /// </summary>
+        private ReaderWriterLockSlim _lock = new ReaderWriterLockSlim(LockRecursionPolicy.NoRecursion);
+
         #region Constructors
 
         /// <summary>
@@ -392,18 +410,48 @@ namespace ThreadSafeList
         #endregion Constructors
 
         /// <summary>
-        /// Locks via the standard MS pattern so there is no worry of a deadlock here, but if
-        /// an operation throws an exception there is the very realy possibility that your data
-        /// is left in an undefined or corrupt state.
+        /// Locks via the standard MS pattern, but if an operation throws an exception
+        /// there is the very realy possibility that your data is left in an undefined
+        /// or corrupt state.
         /// </summary>
-        /// <param name="operation">The action to perform in a threadsafe fashion</param>
-        protected override void ThreadSafeWrapper(Action operation)
+        /// <param name="operation">The read action to perform in a threadsafe fashion</param>
+        protected override void ThreadSafeReadWrapper(Action operation)
         {
-            // Lock on the lock object
-            lock (_lock)
+            // Obtain the read lock
+            _lock.EnterReadLock();
+
+            try
             {
                 // Do the operation
                 operation();
+            }
+            finally
+            {
+                // Release the read lock
+                _lock.ExitReadLock();
+            }
+        }
+
+        /// <summary>
+        /// Locks via the standard MS pattern, but if an operation throws an exception
+        /// there is the very realy possibility that your data is left in an undefined
+        /// or corrupt state.
+        /// </summary>
+        /// <param name="operation">The write action to perform in a threadsafe fashion</param>
+        protected override void ThreadSafeWriteWrapper(Action operation)
+        {
+            // Obtain the write lock
+            _lock.EnterWriteLock();
+
+            try
+            {
+                // Do the operation
+                operation();
+            }
+            finally
+            {
+                // Release the write lock
+                _lock.ExitWriteLock();
             }
         }
     }
@@ -413,7 +461,7 @@ namespace ThreadSafeList
     /// integrity is paramount.
     /// <para>
     /// For standard lock operations the framework ensures that a deadlock will
-    /// not occur by making sure you release the lock object, but it could leave
+    /// not occur by making sure you release the lock object, but it still could leave
     /// the date in the List in an undefined or corrupt state. This class mitigates
     /// that by creating a (deep) copy of the data held in the list before performing
     /// operations that could potentially throw errors.  If an error is caught, the
@@ -424,6 +472,11 @@ namespace ThreadSafeList
     /// <typeparam name="T">The type of objects to store in the ThreadSafeList</typeparam>
     public sealed class DataFidelityThreadSafeList<T> : ThreadSafeList<T>
     {
+        /// <summary>
+        /// Internal object on which to lock when performing critical operations
+        /// </summary>
+        private ReaderWriterLockSlim _lock = new ReaderWriterLockSlim(LockRecursionPolicy.NoRecursion);
+
         #region Constructors
 
         /// <summary>
@@ -452,19 +505,78 @@ namespace ThreadSafeList
         #endregion Constructors
 
         /// <summary>
+        /// Overridden here because the base class implementation
+        /// calls ThreadSafeReadWrapper which causes an infinte recursion
+        /// condition when we also call this method in ThreadSafeReadWrapper.
+        /// </summary>
+        /// <returns>A copy of the internal list</returns>
+        protected override List<T> CloneInternalList()
+        {
+            List<T> tmp = new List<T>(this.Count);
+
+            // Obtain the read lock
+            _lock.EnterReadLock();
+
+            try
+            {
+                // Serialize to memory then back out to create
+                // a deep clone
+                using (var ms = new MemoryStream())
+                {
+                    var formatter = new BinaryFormatter();
+                    formatter.Serialize(ms, _internalList);
+                    ms.Position = 0;
+                    tmp = (List<T>)formatter.Deserialize(ms);
+                }
+            }
+            finally
+            {
+                // Release the read lock
+                _lock.ExitReadLock();
+            }
+
+            return tmp;
+        }
+
+        /// <summary>
         /// Locks via the standard MS pattern but everytime this method is called a temporary
         /// copy of your list will be created.  It implements a rollback in case of any error
         /// so that your collection isn't left in an undefined or corrupt state, but at the
         /// expense of both processor and memory.
         /// </summary>
-        /// <param name="operation">The action to perform in a threadsafe fashion</param>
-        protected override void ThreadSafeWrapper(Action operation)
+        /// <param name="operation">The read action to perform in a threadsafe fashion</param>
+        protected override void ThreadSafeReadWrapper(Action operation)
+        {
+            // Obtain the read lock
+            _lock.EnterReadLock();
+
+            try
+            {
+                // Do the operation
+                operation();
+            }
+            finally
+            {
+                // Release the read lock
+                _lock.ExitReadLock();
+            }
+        }
+
+
+        /// <summary>
+        /// Locks via the standard MS pattern but everytime this method is called a temporary
+        /// copy of your list will be created.  It implements a rollback in case of any error
+        /// so that your collection isn't left in an undefined or corrupt state, but at the
+        /// expense of both processor and memory.
+        /// </summary>
+        /// <param name="operation">The write action to perform in a threadsafe fashion</param>
+        protected override void ThreadSafeWriteWrapper(Action operation)
         {
             // Copy collection
             var oldCopy = this.DeepCloneInternalList();
 
-            // Obtain the lock
-            Monitor.Enter(_lock);
+            // Obtain the write lock
+            _lock.EnterWriteLock();
 
             try
             {
@@ -484,8 +596,8 @@ namespace ThreadSafeList
             }
             finally
             {
-                // Release the lock
-                Monitor.Exit(_lock);
+                // Release the write lock
+                _lock.ExitWriteLock();
             }
         }
     }
