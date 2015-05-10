@@ -257,7 +257,7 @@ namespace ThreadSafeList
 
                     if (lockTaken)
                     {
-                        ThreadSafeWriteWrapper(() => _internalList.CopyTo(array, arrayIndex));
+                        ThreadSafeReadWrapper(() => _internalList.CopyTo(array, arrayIndex));
                     }
                 }
                 finally
@@ -266,11 +266,15 @@ namespace ThreadSafeList
                     {
                         Monitor.Exit(array.SyncRoot);
                     }
+                    else
+                    {
+                        throw new TimeoutException("Failed to copy to array.");
+                    }
                 }
             }
             else
             {
-                ThreadSafeWriteWrapper(() => _internalList.CopyTo(array, arrayIndex));
+                ThreadSafeReadWrapper(() => _internalList.CopyTo(array, arrayIndex));
             }
         }
 
