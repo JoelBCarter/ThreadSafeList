@@ -29,8 +29,8 @@ namespace ThreadSafeList.Tests
         // Data to test against, freshly prepopulated before each test
         List<int> valueTypes;
         List<string> referenceTypes;
-        PerformanceThreadSafeList<int> valueTypesThreadSafeList;
-        PerformanceThreadSafeList<string> referenceTypesThreadSafeList;
+        SnapshotThreadSafeList<int> valueTypesThreadSafeList;
+        SnapshotThreadSafeList<string> referenceTypesThreadSafeList;
 
         [TestInitialize()]
         public void BeforeEachTest()
@@ -48,8 +48,8 @@ namespace ThreadSafeList.Tests
             }
             referenceTypes = tmp.ToList();
 
-            valueTypesThreadSafeList = new PerformanceThreadSafeList<int>(valueTypes);
-            referenceTypesThreadSafeList = new PerformanceThreadSafeList<string>(referenceTypes);
+            valueTypesThreadSafeList = new SnapshotThreadSafeList<int>(valueTypes);
+            referenceTypesThreadSafeList = new SnapshotThreadSafeList<string>(referenceTypes);
         }
 
         //[TestCleanup()]
@@ -350,15 +350,15 @@ namespace ThreadSafeList.Tests
         [TestMethod()]
         public void PerformanceThreadSafeListTest()
         {
-            Assert.IsNotNull(new PerformanceThreadSafeList<int>());
-            Assert.IsNotNull(new PerformanceThreadSafeList<object>());
+            Assert.IsNotNull(new SnapshotThreadSafeList<int>());
+            Assert.IsNotNull(new SnapshotThreadSafeList<object>());
         }
 
         [TestMethod()]
         public void PerformanceThreadSafeListTest1()
         {
-            Assert.IsNotNull(new PerformanceThreadSafeList<int>(20));
-            Assert.IsNotNull(new PerformanceThreadSafeList<object>(20));
+            Assert.IsNotNull(new SnapshotThreadSafeList<int>(20));
+            Assert.IsNotNull(new SnapshotThreadSafeList<object>(20));
         }
 
         [TestMethod()]
