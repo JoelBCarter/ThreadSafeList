@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Threading;
@@ -246,34 +248,41 @@ namespace ThreadSafeList
             }
 
             // If the array supports syncronization we'll be polite,
-            // otherwise all bets are off
+            // otherwise all bets are off.  This is a huge deadlock concern here
             if (array.IsSynchronized)
             {
-                bool lockTaken = false;
-                try
+                // Have timeout in case of deadlock
+                if (Monitor.TryEnter(array.SyncRoot, 5000))
                 {
-                    // Have timeout in case of deadlock
-                    Monitor.TryEnter(array.SyncRoot, 5000, ref lockTaken);
-
-                    if (lockTaken)
+                    try
                     {
                         ThreadSafeReadWrapper(() => _internalList.CopyTo(array, arrayIndex));
                     }
-                }
-                finally
-                {
-                    if (lockTaken)
+                    finally
                     {
                         Monitor.Exit(array.SyncRoot);
                     }
-                    else
-                    {
-                        throw new TimeoutException("Failed to copy to array.");
-                    }
+                }
+                else
+                {
+                    throw new TimeoutException("Failed to copy to array.");
                 }
             }
             else
             {
+                // If access to the array is not thread safe, just perform the operation.
+                // Don't do a try/catch here because if there is multithreading issues, we
+                // want to flesh those out in testing, rather than squelch them and devise
+                // some way to indicate that to the caller.  I don't think this should
+                // be a problem because arrays a fixed size adn we're writing to it.  So,
+                // the only issue should be if another thread overwrites our data, but
+                // that's out of our control and is the responsibility of the array
+                // passed into us.
+                // TODO:  Is there any array class that takes a non-threadsafe array
+                // and returns a threadsafe one.  From grepping MSDN I can't find
+                // anything that promises the constructor process is safe.  ArrayList
+                // seems promising, but again the construction process isn't garanteed
+                // to be threadsafe.
                 ThreadSafeReadWrapper(() => _internalList.CopyTo(array, arrayIndex));
             }
         }
@@ -783,7 +792,7 @@ namespace ThreadSafeList
             }
         }
 
-                /// <summary>
+        /// <summary>
         /// Returns an enumerator that iterates through the ThreadSafeList&lt;T&gt;.
         /// <para>
         /// The default implmentation of this method allows the caller to enumerate over
