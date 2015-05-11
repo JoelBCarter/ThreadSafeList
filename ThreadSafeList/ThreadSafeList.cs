@@ -16,7 +16,8 @@ namespace ThreadSafeList
     /// allows derived classes to implement their own syncronization mechanism as different
     /// use cases might call for different balances between performance, memory, & safety.  Anyone
     /// wanting to derive from ThreadSafeList&lt;T&gt; need only implement the ThreadSafeWrapper
-    /// method that is used to provide safety/synchronization across threads.
+    /// methods that are used to provide safety/synchronization across threads and the 
+    /// IEnumerable&lt;T&gt;.GetEnumerator() method.
     /// </summary>
     /// <typeparam name="T">The type of objects to store in the ThreadSafeList</typeparam>
     public abstract class ThreadSafeList<T> : IList<T>
@@ -46,24 +47,6 @@ namespace ThreadSafeList
         /// <param name="operation">The write action that will be performed in a
         /// thread-safe manner</param>
         protected abstract void ThreadSafeWriteWrapper(Action operation);
-
-        ///// <summary>
-        ///// The method used to Clone the internal list so it can
-        ///// be enumerated over.  The default implmentation is a
-        ///// deep clone and unless you are opening yourself up to
-        ///// errors if you change it to shallow. Nevertheless, if you
-        ///// find yourself in need you can just override this method with
-        ///// either ShallowCloneInternalList below, or the implementation
-        ///// your use case dictates.  Be sure to read all the cautions listed
-        ///// on the IEnumerator<T> GetEnumerator() of this class before you do
-        ///// though because I thought this through hard and you'll want to know
-        ///// why.
-        ///// </summary>
-        ///// <returns>A copy of the internal list</returns>
-        //protected virtual List<T> CloneInternalList()
-        //{
-        //    return this.DeepCloneInternalList();
-        //}
 
         /// <summary>
         /// Provides a deep copy of the internal list
@@ -326,43 +309,11 @@ namespace ThreadSafeList
         }
 
         /// <summary>
-        /// Returns an enumerator that iterates through the ThreadSafeList&lt;T&gt;.
-        /// <para>
-        /// The default implmentation of this method allows the caller to enumerate over
-        /// a snapshot of the ThreadSafeList&lt;T&gt; items at the time that the enumerator
-        /// was obtained. This is a memory intensive operation so it was left as virtual in
-        /// case you want to do a shallow clone. The deciscion to implement it this way was made for
-        /// several reasons, namely:
-        /// 
-        ///   - Though a foreach loop can't modify the collection (a compile time error), it
-        ///   can modify properties of the members within the collection and that is definitely not
-        ///   thread safe.  So rather than confuse consumers of this class with the word "ThreadSafe"
-        ///   we just create a DeepClone of the internal list for consumers to iterate over since they
-        ///   shouldn't be modifying the collection anyway.
-        ///   
-        ///   - It's how Microsoft did it.  So it's probably best to conform to a known API so that consumers
-        ///   get the performance they have come to expect from other classes in the Base Class Library. For
-        ///   example, if you look ConcurrentDictionary&lt;TKey, TValue>&gt; .Keys and .Values properties it
-        ///   appears they are snapshots at the time the Enumerator was obtained.
-        ///   
-        /// You might think that you could just cast the list to a ReadOnly collection and then grab that enumerator
-        /// but you still run into the first issue that people can modify the property values of members within the
-        /// collection, thus ruining your thread safety.  The other option would be to just lock the collection until
-        /// the Enumerating is complete, but that's an even worse idea (just asking for deadlock) since there is no
-        /// guarantee the enumeration will ever occur so this seems to be the lesser of many evils for now.
-        /// </para>
-        /// <para>
-        /// If you want to change the default behaviour to a shallow copy (not recommended for all the
-        /// reasons above and more) you can override the CloneInternalList method of this class and
-        /// use the ShallowCloneInternalList method instead, roll your own clone method, or just
-        /// override this method.
+        /// Returns an enumerator that iterates through the collection.
         /// </para>
         /// </summary>
-        /// <returns>A ThreadSafeList&lt;T&gt;.Enumerator for the ThreadSafeList&lt;T&gt;.</returns>
-        //public virtual IEnumerator<T> GetEnumerator()
-        //{
-        //    return this.CloneInternalList().GetEnumerator();
-        //}
+        /// <returns>A IEnumerator&lt;T&gt; that can be used to iterate through
+        /// the collection.</returns>
         public abstract IEnumerator<T> GetEnumerator();
 
         /// <summary>
@@ -379,18 +330,29 @@ namespace ThreadSafeList
     }
 
     /// <summary>
-    /// Use this collection when you need a ThreadSafeList of objects that are not themselves
-    /// threadsafe and are ok if invalid operations result in partially/incompletely modified
-    /// colleciton members.
+    /// This implementation of ThreadSafeList&lt;T&gt; clones the list before returning it to be
+    /// enumerated over.  In essence, what the caller receives is a snapshot of the list as
+    /// it was at the time that foreach was called.  There’s some initial suggestions (using
+    /// reflection) that this is actually how Microsoft handles some of their concurrent
+    /// collections internally.
     /// <para>
-    /// This class attempts to mitigate the errors caused by object that are not themselves
-    /// threadsafe by performing a deep copy of the list before iterating over it.  That way
-    /// non-atomic modificaitons to list members will not cause problems across threads.
+    /// By cloning the list before returning the enumerator this class prevents the potential
+    /// of indefinitely locking collection when .MoveNext() is called but the enumerator has
+    /// not yet been disposed of.  This greatly reduces the surface area of exposure to deadlock
+    /// as well as speeds up concurrent, multi-threaded operations.
     /// </para>
     /// <para>
-    /// This class exposes all the standard IList&lt;T&gt; operations on the collection, but if an error
-    /// is thrown the data "could" potetially be in undefined or corrupt state.  I'm pretty sure that's
-    /// the same behaviour as for the .NET implementation of List&lt;T&gt; so don't be too alarmed.
+    /// The clone introduces a moderate amount of overhead.  Most importantly, valid operations
+    /// in foreach loops would not be operating on the real data members, only their copies. 
+    /// So method calls or property updates would need to consider this and decide if this
+    /// implementation is appropriate.
+    /// </para>
+    /// <para>
+    /// Use this class when you simply need to query data as of a specific time and the data
+    /// set is not so large that a clone would introduce huge performance impacts.  Also, if
+    /// deadlock is your greatest concern, this collection avoids that fairly reasonably through
+    /// cloning before obtaining an Enumerable.  Users may grumble at how slow a program is, but
+    /// they’ll completely stop using a deadlocked one.
     /// </para>
     /// </summary>
     /// <typeparam name="T">The type of objects to store in the ThreadSafeList</typeparam>
@@ -515,15 +477,20 @@ namespace ThreadSafeList
     }
 
     /// <summary>
-    /// Use this collection when you need a ThreadSafeList&lt;T&gt; to hold objects
-    /// that you know are threadsafe as well.  Likewise, you can also use this
-    /// collection when you need a ThreadSafeList&lt;T&gt;, don't want to hog memory to
-    /// accomplish it, and are ok if invalid operations result in partially/incompletely
-    /// modified colleciton members.
+    /// This implementation of ThreadSafeList&lt;T&gt; uses a thread-safe enumerator to enumerate
+    /// over the actual data set.
     /// <para>
-    /// This class exposes all the standard IList&lt;T&gt; operations on the collection, but if an error
-    /// is thrown the data "could" potetially be in undefined or corrupt state.  I'm pretty sure that's
-    /// the same behaviour as for the .NET implementation of List&lt;T&gt; so don't be too alarmed.
+    /// This implementation is fast and it works well with large data sets.
+    /// </para>
+    /// <para>
+    /// The potential for indefinite lock is introduced by exposing a locking enumerator to all
+    /// callers.
+    /// </para>
+    /// <para>
+    /// Use this implementation of ThreadSafeList&lt;T&gt; when the generic type parameter to
+    /// be used in list is also known to be thread safe or if you can control enumeration through
+    /// the collection via the foreach loop pattern only (no camping out on the enumerator after
+    /// IEnumerator&lt;T&gt;.MoveNext() is called).
     /// </para>
     /// </summary>
     /// <typeparam name="T">The type of objects to store in the ThreadSafeList</typeparam>
@@ -608,38 +575,8 @@ namespace ThreadSafeList
         }
 
         /// <summary>
-        /// Returns an enumerator that iterates through the ThreadSafeList&lt;T&gt;.
-        /// <para>
-        /// The default implmentation of this method allows the caller to enumerate over
-        /// a snapshot of the ThreadSafeList&lt;T&gt; items at the time that the enumerator
-        /// was obtained. This is a memory intensive operation so it was left as virtual in
-        /// case you want to do a shallow clone. The deciscion to implement it this way was made for
-        /// several reasons, namely:
-        /// 
-        ///   - Though a foreach loop can't modify the collection (a compile time error), it
-        ///   can modify properties of the members within the collection and that is definitely not
-        ///   thread safe.  So rather than confuse consumers of this class with the word "ThreadSafe"
-        ///   we just create a DeepClone of the internal list for consumers to iterate over since they
-        ///   shouldn't be modifying the collection anyway.
-        ///   
-        ///   - It's how Microsoft did it.  So it's probably best to conform to a known API so that consumers
-        ///   get the performance they have come to expect from other classes in the Base Class Library. For
-        ///   example, if you look ConcurrentDictionary&lt;TKey, TValue>&gt; .Keys and .Values properties it
-        ///   appears they are snapshots at the time the Enumerator was obtained.
-        ///   
-        /// You might think that you could just cast the list to a ReadOnly collection and then grab that enumerator
-        /// but you still run into the first issue that people can modify the property values of members within the
-        /// collection, thus ruining your thread safety.  The other option would be to just lock the collection until
-        /// the Enumerating is complete, but that's an even worse idea (just asking for deadlock) since there is no
-        /// guarantee the enumeration will ever occur so this seems to be the lesser of many evils for now.
-        /// </para>
-        /// <para>
-        /// If you want to change the default behaviour to a shallow copy (not recommended for all the
-        /// reasons above and more) you can override the CloneInternalList method of this class and
-        /// use the ShallowCloneInternalList method instead, roll your own clone method, or just
-        /// override this method.
-        /// </para>
-        /// </summary>
+        /// Returns an ThreadSafeEnumerator&lt;T&gt; that iterates through the
+        /// ThreadSafeList&lt;T&gt;.
         /// <returns>A ThreadSafeList&lt;T&gt;.Enumerator for the ThreadSafeList&lt;T&gt;.</returns>
         public override IEnumerator<T> GetEnumerator()
         {
@@ -648,16 +585,24 @@ namespace ThreadSafeList
     }
 
     /// <summary>
-    /// Use this collection when you need a ThreadSafeList&lt;T&gt; AND data
-    /// integrity is paramount.
+    /// This implementation of ThreadSafeList&lt;T&gt; uses a thread-safe enumerator to enumerate
+    /// over the actual data set.  Before each IList<T> operation the data set is cloned and
+    /// rolled back if an error is thrown during the operation.
     /// <para>
-    /// For standard lock operations the framework ensures that a deadlock will
-    /// not occur by making sure you release the lock object, but it still could leave
-    /// the date in the List in an undefined or corrupt state. This class mitigates
-    /// that by creating a (deep) copy of the data held in the list before performing
-    /// operations that could potentially throw errors.  If an error is caught, the
-    /// collection is reverted to it's original state (the state it was in before the
-    /// operation).
+    /// The data set is cloned and rolled back so that if an error is thrown during the operation
+    /// the original data can be restored.  Eric Lippert has a great write-up on this on his blog
+    /// about why you might need to support a rollback.   A simplified explanation of this issue
+    /// is that if we throw an exception the lock will be released, but the data could have been
+    /// left in a corrupt state.  Consumers of any collection really need to think through if they
+    /// want to retain a collection that was incompletely operated on.
+    /// </para>
+    /// <para>
+    /// The potential for indefinite lock is introduced by exposing a locking enumerator to all
+    /// callers.  This implementation of ThreadSafeList<T> is both memory and processor intensive.
+    /// </para>
+    /// <para>
+    /// Use when data integrity is paramount and the data set is not so large that cloning often
+    /// would introduce memory/performance issues.
     /// </para>
     /// </summary>
     /// <typeparam name="T">The type of objects to store in the ThreadSafeList</typeparam>
@@ -793,43 +738,9 @@ namespace ThreadSafeList
         }
 
         /// <summary>
-        /// Returns an enumerator that iterates through the ThreadSafeList&lt;T&gt;.
-        /// <para>
-        /// The default implmentation of this method allows the caller to enumerate over
-        /// a snapshot of the ThreadSafeList&lt;T&gt; items at the time that the enumerator
-        /// was obtained. This is a memory intensive operation so it was left as virtual in
-        /// case you want to do a shallow clone. The deciscion to implement it this way was made for
-        /// several reasons, namely:
-        /// 
-        ///   - Though a foreach loop can't modify the collection (a compile time error), it
-        ///   can modify properties of the members within the collection and that is definitely not
-        ///   thread safe.  So rather than confuse consumers of this class with the word "ThreadSafe"
-        ///   we just create a DeepClone of the internal list for consumers to iterate over since they
-        ///   shouldn't be modifying the collection anyway.
-        ///   
-        ///   - It's how Microsoft did it.  So it's probably best to conform to a known API so that consumers
-        ///   get the performance they have come to expect from other classes in the Base Class Library. For
-        ///   example, if you look ConcurrentDictionary&lt;TKey, TValue>&gt; .Keys and .Values properties it
-        ///   appears they are snapshots at the time the Enumerator was obtained.
-        ///   
-        /// You might think that you could just cast the list to a ReadOnly collection and then grab that enumerator
-        /// but you still run into the first issue that people can modify the property values of members within the
-        /// collection, thus ruining your thread safety.  The other option would be to just lock the collection until
-        /// the Enumerating is complete, but that's an even worse idea (just asking for deadlock) since there is no
-        /// guarantee the enumeration will ever occur so this seems to be the lesser of many evils for now.
-        /// </para>
-        /// <para>
-        /// If you want to change the default behaviour to a shallow copy (not recommended for all the
-        /// reasons above and more) you can override the CloneInternalList method of this class and
-        /// use the ShallowCloneInternalList method instead, roll your own clone method, or just
-        /// override this method.
-        /// </para>
-        /// </summary>
+        /// Returns an ThreadSafeEnumerator&lt;T&gt; that iterates through the
+        /// ThreadSafeList&lt;T&gt;.
         /// <returns>A ThreadSafeList&lt;T&gt;.Enumerator for the ThreadSafeList&lt;T&gt;.</returns>
-        //public override IEnumerator<T> GetEnumerator()
-        //{
-        //    return this.DeepCloneInternalList().GetEnumerator();
-        //}
         public override IEnumerator<T> GetEnumerator()
         {
             return new ThreadSafeEnumerator<T>(_internalList.GetEnumerator(), _lock);
