@@ -826,9 +826,13 @@ namespace ThreadSafeList
         /// </para>
         /// </summary>
         /// <returns>A ThreadSafeList&lt;T&gt;.Enumerator for the ThreadSafeList&lt;T&gt;.</returns>
+        //public override IEnumerator<T> GetEnumerator()
+        //{
+        //    return this.DeepCloneInternalList().GetEnumerator();
+        //}
         public override IEnumerator<T> GetEnumerator()
         {
-            return this.DeepCloneInternalList().GetEnumerator();
+            return new ThreadSafeEnumerator<T>(_internalList.GetEnumerator(), _lock);
         }
     }
 }
