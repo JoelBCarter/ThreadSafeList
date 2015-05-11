@@ -17,7 +17,15 @@ namespace ThreadSafeList
     /// contravariance, see Covariance and Contravariance in Generics.</typeparam>
     public class ThreadSafeEnumerator<T> : IEnumerator<T>
     {
+        /// <summary>
+        /// The underlying enumerator for the collection
+        /// </summary>
         IEnumerator<T> _enumerator;
+
+        /// <summary>
+        /// The threadsafe read object we'll use to control
+        /// concurrent access to the collection
+        /// </summary>
         ReaderWriterLockSlim _readLockObj;
 
         /// <summary>
@@ -32,8 +40,9 @@ namespace ThreadSafeList
             _enumerator = enumerator;
             _readLockObj = readLockObj;
 
-            // Take out a read lock
-            _readLockObj.EnterReadLock();
+            // Don't take out read lock yet because we haven't tried
+            // anything on the collection yet.  This limits our time spent
+            // locking and minimizes our exposure to deadlock.
         }
 
         #region IDisposable
@@ -44,8 +53,12 @@ namespace ThreadSafeList
         /// </summary>
         public void Dispose()
         {
-            // Return the read lock
-            _readLockObj.ExitReadLock();
+            // If we have a read lock taken out
+            if (_readLockObj.IsReadLockHeld)
+            {
+                // Return it
+                _readLockObj.ExitReadLock();
+            }
         }
 
         #endregion IDisposable
@@ -57,7 +70,17 @@ namespace ThreadSafeList
         /// </summary>
         public T Current
         {
-            get { return _enumerator.Current; }
+            get
+            {
+                // If we don't have a read lock taken out
+                if (!_readLockObj.IsReadLockHeld)
+                {
+                    // Take it out now
+                    _readLockObj.EnterReadLock();
+                }
+
+                return _enumerator.Current;
+            }
         }
 
         /// <summary>
@@ -76,6 +99,13 @@ namespace ThreadSafeList
         /// collection.</returns>
         public bool MoveNext()
         {
+            // If we don't have a read lock taken out
+            if (!_readLockObj.IsReadLockHeld)
+            {
+                // Take it out now
+                _readLockObj.EnterReadLock();
+            }
+
             return _enumerator.MoveNext();
         }
 
@@ -85,6 +115,13 @@ namespace ThreadSafeList
         /// </summary>
         public void Reset()
         {
+            // If we have a read lock taken out
+            if (_readLockObj.IsReadLockHeld)
+            {
+                // Return it
+                _readLockObj.ExitReadLock();
+            }
+
             _enumerator.Reset();
         }
 
