@@ -8,6 +8,35 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Threading;
 namespace ThreadSafeList.Tests
 {
+    internal static class TestMethods
+    {
+        public static void VerifyTwoEnumeratorsOnSameThread(ThreadSafeList<int> valTypes, ThreadSafeList<string> refTypes)
+        {
+            // Since we're calling this from the same thread on the same
+            // object, we should not get a LockRecursionException (i.e.
+            // we should be able to enumerate via different enumerators)
+            IEnumerator<int> v1 = valTypes.GetEnumerator();
+            v1.MoveNext();
+            IEnumerator<int> v2 = valTypes.GetEnumerator();
+            v2.MoveNext();
+
+            // Make sure they're two different enumerators
+            Assert.AreNotEqual(v1, v2);
+
+
+            // Since we're calling this from the same thread on the same
+            // object, we should not get a LockRecursionException (i.e.
+            // we should be able to enumerate via different enumerators)
+            IEnumerator<object> r1 = refTypes.GetEnumerator();
+            r1.MoveNext();
+            IEnumerator<object> r2 = refTypes.GetEnumerator();
+            r2.MoveNext();
+
+            // Make sure they're two different enumerators
+            Assert.AreNotEqual(r1, r2);
+        }
+    }
+
     [TestClass()]
     public class SnapshotThreadSafeListTests
     {
@@ -1030,30 +1059,7 @@ namespace ThreadSafeList.Tests
         [TestMethod()]
         public void GetEnumeratorTest()
         {
-
-            // Since we're calling this from the same thread on the same
-            // object, we should not get a LockRecursionException (i.e.
-            // we should be able to enumerate via different enumerators)
-            IEnumerator<int> v1 = valueTypesThreadSafeList.GetEnumerator();
-            v1.MoveNext();
-            IEnumerator<int> v2 = valueTypesThreadSafeList.GetEnumerator();
-            v2.MoveNext();
-
-            // Make sure they're two different enumerators
-            Assert.AreNotEqual(v1, v2);
-
-
-            // Since we're calling this from the same thread on the same
-            // object, we should not get a LockRecursionException (i.e.
-            // we should be able to enumerate via different enumerators)
-            IEnumerator<object> r1 = referenceTypesThreadSafeList.GetEnumerator();
-            r1.MoveNext();
-            IEnumerator<object> r2 = referenceTypesThreadSafeList.GetEnumerator();
-            r2.MoveNext();
-
-            // Make sure they're two different enumerators
-            Assert.AreNotEqual(r1, r2);
-
+            TestMethods.VerifyTwoEnumeratorsOnSameThread(valueTypesThreadSafeList, referenceTypesThreadSafeList);
         }
 
         #endregion IList<T> Member Tests
@@ -1564,14 +1570,7 @@ namespace ThreadSafeList.Tests
         [TestMethod()]
         public void GetEnumeratorTest()
         {
-            // Test we get a new one each time
-            IEnumerator<int> v1 = valueTypesThreadSafeList.GetEnumerator();
-            IEnumerator<int> v2 = valueTypesThreadSafeList.GetEnumerator();
-            Assert.AreNotEqual(v1, v2);
-
-            IEnumerator<object> r1 = referenceTypesThreadSafeList.GetEnumerator();
-            IEnumerator<object> r2 = referenceTypesThreadSafeList.GetEnumerator();
-            Assert.AreNotEqual(r1, r2);
+            TestMethods.VerifyTwoEnumeratorsOnSameThread(valueTypesThreadSafeList, referenceTypesThreadSafeList);
         }
 
         #endregion IList<T> Member Tests
